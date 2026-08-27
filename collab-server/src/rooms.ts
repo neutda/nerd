@@ -10,6 +10,7 @@ export function createRoom(name?: string, snapshot?: ErdDocument | null): Collab
     id: randomUUID(),
     name: name?.trim() || 'untitled',
     createdAt: new Date().toISOString(),
+    rev: 1,
     snapshot: snapshot ?? createEmptyDocument(),
     viewers: []
   }
@@ -29,13 +30,14 @@ export function setSnapshot(id: string, snapshot: ErdDocument | null): CollabRoo
   const room = rooms.get(id)
   if (!room) return undefined
   room.snapshot = snapshot
+  room.rev += 1
   return room
 }
 
 export function addViewer(roomId: string, viewer: CollabViewer): CollabRoom | undefined {
   const room = rooms.get(roomId)
   if (!room) return undefined
-  room.viewers = room.viewers.filter((v) => v.clientId !== viewer.clientId)
+  room.viewers = room.viewers.filter((item) => item.clientId !== viewer.clientId)
   room.viewers.push(viewer)
   return room
 }
@@ -43,10 +45,14 @@ export function addViewer(roomId: string, viewer: CollabViewer): CollabRoom | un
 export function removeViewer(roomId: string, clientId: string): CollabRoom | undefined {
   const room = rooms.get(roomId)
   if (!room) return undefined
-  room.viewers = room.viewers.filter((v) => v.clientId !== clientId)
+  room.viewers = room.viewers.filter((item) => item.clientId !== clientId)
   return room
 }
 
 export function deleteRoom(id: string): boolean {
   return rooms.delete(id)
+}
+
+export function resetRooms(): void {
+  rooms.clear()
 }

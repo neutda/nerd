@@ -13,9 +13,13 @@ export function useAutosave() {
 
   function snapshot(): string {
     return JSON.stringify({
-      filePath: erd.filePath,
-      dirty: erd.dirty,
-      document: erd.document
+      activeTabId: erd.activeTabId,
+      tabs: erd.tabs.map((tab) => ({
+        id: tab.id,
+        filePath: tab.filePath,
+        dirty: tab.dirty,
+        document: tab.document
+      }))
     })
   }
 
@@ -24,15 +28,19 @@ export function useAutosave() {
     const current = snapshot()
     if (current === lastSnapshot) return
     const content = serializeAutosave({
-      filePath: erd.filePath,
-      dirty: erd.dirty,
-      document: erd.document
+      activeTabId: erd.activeTabId,
+      tabs: erd.tabs.map((tab) => ({
+        id: tab.id,
+        filePath: tab.filePath,
+        dirty: tab.dirty,
+        document: tab.document
+      }))
     })
     writing = window.nerd
       .saveDraft(content)
       .then(() => {
         lastSnapshot = current
-        if (erd.dirty) erd.draftSavedAt = Date.now()
+        if (erd.dirty) erd.touchDraft()
       })
       .catch(() => undefined)
       .finally(() => {
@@ -58,12 +66,11 @@ export function useAutosave() {
       }
     }
     lastSnapshot = snapshot()
-    erd.resetHistory()
     ready = true
   }
 
   const stop = watch(
-    () => [erd.document, erd.filePath, erd.dirty] as const,
+    () => [erd.tabs, erd.activeTabId] as const,
     schedule,
     { deep: true }
   )

@@ -7,19 +7,12 @@ function fileStem(name: string): string {
 export function useDocumentSession() {
   const erd = useErdStore()
 
-  function confirmDiscard(): boolean {
-    if (!erd.dirty) return true
-    return window.confirm('저장하지 않은 변경이 있습니다. 계속할까요?')
-  }
-
   async function createNew(): Promise<void> {
-    if (!confirmDiscard()) return
-    erd.newDocument()
+    erd.addEmptyTab()
   }
 
   async function open(): Promise<void> {
     if (!window.nerd) return
-    if (!confirmDiscard()) return
     const result = await window.nerd.openDocument()
     if (result.canceled || !result.content || !result.path) return
     erd.loadFromJson(result.content, result.path)
@@ -32,8 +25,7 @@ export function useDocumentSession() {
       `${fileStem(erd.document.name)}.nerd.json`
     )
     if (result.canceled || !result.path) return false
-    erd.filePath = result.path
-    erd.dirty = false
+    erd.markSaved(result.path)
     return true
   }
 
@@ -41,7 +33,7 @@ export function useDocumentSession() {
     if (!window.nerd) return false
     if (erd.filePath) {
       await window.nerd.saveToPath(erd.filePath, erd.toJson())
-      erd.dirty = false
+      erd.markClean()
       return true
     }
     return saveAs()
@@ -52,5 +44,5 @@ export function useDocumentSession() {
     await window.nerd.exportDdl(sql, `${fileStem(erd.document.name)}.${dialect}.sql`)
   }
 
-  return { createNew, open, save, saveAs, exportDdl, confirmDiscard }
+  return { createNew, open, save, saveAs, exportDdl }
 }

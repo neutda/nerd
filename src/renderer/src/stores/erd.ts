@@ -13,7 +13,8 @@ import {
   createEmptyDocument,
   createTable,
   nextColumnName,
-  nextTableName
+  nextTableName,
+  UNTITLED_NAME
 } from '@shared/erd/document'
 import type { Column, Dialect, ErdDocument, Relation, Table } from '@shared/erd/model'
 import { createId } from '@shared/erd/ids'
@@ -28,11 +29,11 @@ const HISTORY_LIMIT = 80
 let historyTimer: ReturnType<typeof setTimeout> | null = null
 let historyLock = false
 
-interface ErdState {
+export interface ErdTab {
+  id: string
   document: ErdDocument
   filePath: string | null
   dirty: boolean
-  revision: number
   selectedTableId: string | null
   selectedColumnId: string | null
   selectedRelationId: string | null
@@ -45,12 +46,18 @@ interface ErdState {
   historyBaseline: string
 }
 
-export const useErdStore = defineStore('erd', {
-  state: (): ErdState => ({
-    document: createEmptyDocument(),
+interface ErdState {
+  tabs: ErdTab[]
+  activeTabId: string
+  revision: number
+}
+
+function createTab(document = createEmptyDocument()): ErdTab {
+  return {
+    id: createId(),
+    document,
     filePath: null,
     dirty: false,
-    revision: 0,
     selectedTableId: null,
     selectedColumnId: null,
     selectedRelationId: null,
@@ -60,34 +67,103 @@ export const useErdStore = defineStore('erd', {
     draftSavedAt: null,
     historyPast: [],
     historyFuture: [],
-    historyBaseline: ''
-  }),
+    historyBaseline: serializeErdDocument(document)
+  }
+}
+
+function isScratchTab(tab: ErdTab): boolean {
+  return (
+    !tab.filePath &&
+    !tab.dirty &&
+    tab.document.name === UNTITLED_NAME &&
+    tab.document.tables.length === 0 &&
+    tab.document.relations.length === 0
+  )
+}
+
+export const useErdStore = defineStore('erd', {
+  state: (): ErdState => {
+    const tab = createTab()
+    return {
+      tabs: [tab],
+      activeTabId: tab.id,
+      revision: 0
+    }
+  },
   getters: {
-    selectedTable(state): Table | null {
-      if (!state.selectedTableId) return null
-      return state.document.tables.find((t) => t.id === state.selectedTableId) ?? null
+    active(state): ErdTab {
+      return state.tabs.find((tab) => tab.id === state.activeTabId) ?? state.tabs[0]
     },
-    selectedColumn(state): Column | null {
-      if (!state.selectedTableId || !state.selectedColumnId) return null
-      const table = state.document.tables.find((t) => t.id === state.selectedTableId)
-      return table?.columns.find((c) => c.id === state.selectedColumnId) ?? null
+    document(): ErdDocument {
+      return this.active.document
     },
-    selectedRelation(state): Relation | null {
-      if (!state.selectedRelationId) return null
-      return state.document.relations.find((r) => r.id === state.selectedRelationId) ?? null
+    filePath(): string | null {
+      return this.active.filePath
     },
-    tableCount: (state) => state.document.tables.length,
-    relationCount: (state) => state.document.relations.length,
+    dirty(): boolean {
+      return this.active.dirty
+    },
+    selectedTableId(): string | null {
+      return this.active.selectedTableId
+    },
+    selectedColumnId(): string | null {
+      return this.active.selectedColumnId
+    },
+    selectedRelationId(): string | null {
+      return this.active.selectedRelationId
+    },
+    focusTableId(): string | null {
+      return this.active.focusTableId
+    },
+    pendingFocusColumnId(): string | null {
+      return this.active.pendingFocusColumnId
+    },
+    pendingRenameTableId(): string | null {
+      return this.active.pendingRenameTableId
+    },
+    draftSavedAt(): number | null {
+      return this.active.draftSavedAt
+    },
+    historyPast(): string[] {
+      return this.active.historyPast
+    },
+    historyFuture(): string[] {
+      return this.active.historyFuture
+    },
+    historyBaseline(): string {
+      return this.active.historyBaseline
+    },
+    selectedTable(): Table | null {
+      if (!this.selectedTableId) return null
+      return this.document.tables.find((t) => t.id === this.selectedTableId) ?? null
+    },
+    selectedColumn(): Column | null {
+      if (!this.selectedTableId || !this.selectedColumnId) return null
+      const table = this.document.tables.find((t) => t.id === this.selectedTableId)
+      return table?.columns.find((c) => c.id === this.selectedColumnId) ?? null
+    },
+    selectedRelation(): Relation | null {
+      if (!this.selectedRelationId) return null
+      return this.document.relations.find((r) => r.id === this.selectedRelationId) ?? null
+    },
+    tableCount(): number {
+      return this.document.tables.length
+    },
+    relationCount(): number {
+      return this.document.relations.length
+    },
     canUndo(): boolean {
       if (this.historyPast.length > 0) return true
       if (!this.historyBaseline) return false
       return serializeErdDocument(this.document) !== this.historyBaseline
     },
-    canRedo: (state) => state.historyFuture.length > 0
+    canRedo(): boolean {
+      return this.historyFuture.length > 0
+    }
   },
   actions: {
     markDirty(): void {
-      this.dirty = true
+      this.active.dirty = true
       this.queueHistory()
     },
     bumpRevision(): void {
@@ -98,9 +174,9 @@ export const useErdStore = defineStore('erd', {
         clearTimeout(historyTimer)
         historyTimer = null
       }
-      this.historyPast = []
-      this.historyFuture = []
-      this.historyBaseline = this.toJson()
+      this.active.historyPast = []
+      this.active.historyFuture = []
+      this.active.historyBaseline = this.toJson()
     },
     queueHistory(): void {
       if (historyLock) return
@@ -113,21 +189,21 @@ export const useErdStore = defineStore('erd', {
     commitHistory(): void {
       if (historyLock) return
       const next = this.toJson()
-      if (!this.historyBaseline) {
-        this.historyBaseline = next
+      if (!this.active.historyBaseline) {
+        this.active.historyBaseline = next
         return
       }
-      if (next === this.historyBaseline) return
-      this.historyPast.push(this.historyBaseline)
-      if (this.historyPast.length > HISTORY_LIMIT) this.historyPast.shift()
-      this.historyBaseline = next
-      this.historyFuture = []
+      if (next === this.active.historyBaseline) return
+      this.active.historyPast.push(this.active.historyBaseline)
+      if (this.active.historyPast.length > HISTORY_LIMIT) this.active.historyPast.shift()
+      this.active.historyBaseline = next
+      this.active.historyFuture = []
     },
     applyDocument(raw: string, dirty = true): void {
       historyLock = true
-      this.document = parseErdDocument(raw)
-      this.historyBaseline = raw
-      this.dirty = dirty
+      this.active.document = parseErdDocument(raw)
+      this.active.historyBaseline = raw
+      this.active.dirty = dirty
       this.clearSelection()
       this.bumpRevision()
       historyLock = false
@@ -158,67 +234,135 @@ export const useErdStore = defineStore('erd', {
       this.markDirty()
       this.bumpRevision()
     },
-    importSchema(schema: IntrospectedSchema, mode: 'replace' | 'merge'): void {
-      const existingNames = mode === 'merge' ? this.document.tables.map((table) => table.name) : []
-      const imported = schemaToErd(schema, existingNames)
-      this.document.dialect = schema.dialect
-      this.clearSelection()
-      if (mode === 'replace') {
-        this.document.tables = imported.tables
-        this.document.relations = imported.relations
-        this.arrangeTables()
-        return
+    activateTab(id: string): void {
+      if (id === this.activeTabId) return
+      if (!this.tabs.some((tab) => tab.id === id)) return
+      this.commitHistory()
+      this.activeTabId = id
+      this.bumpRevision()
+    },
+    addEmptyTab(): void {
+      this.commitHistory()
+      const tab = createTab()
+      this.tabs.push(tab)
+      this.activeTabId = tab.id
+      this.bumpRevision()
+    },
+    closeTab(id: string, options?: { ignoreDirty?: boolean }): boolean {
+      const tab = this.tabs.find((item) => item.id === id)
+      if (!tab) return true
+      if (!options?.ignoreDirty && tab.dirty && !window.confirm('저장하지 않은 변경이 있습니다. 탭을 닫을까요?')) {
+        return false
       }
-      const offsetX =
-        this.document.tables.length === 0
-          ? 0
-          : Math.max(...this.document.tables.map((table) => table.x)) + 280
-      const positions = layoutTables(imported.tables, imported.relations)
-      const byId = new Map(imported.tables.map((table) => [table.id, table]))
+      const index = this.tabs.findIndex((item) => item.id === id)
+      this.tabs = this.tabs.filter((item) => item.id !== id)
+      if (this.tabs.length === 0) {
+        const next = createTab()
+        this.tabs = [next]
+        this.activeTabId = next.id
+      } else if (this.activeTabId === id) {
+        this.activeTabId = this.tabs[Math.min(index, this.tabs.length - 1)].id
+      }
+      this.bumpRevision()
+      return true
+    },
+    pruneScratchTabs(keepId: string): void {
+      if (this.tabs.length <= 1) return
+      this.tabs = this.tabs.filter((tab) => tab.id === keepId || !isScratchTab(tab))
+    },
+    openTabWithDocument(document: ErdDocument, options?: { filePath?: string | null; dirty?: boolean }): string {
+      this.commitHistory()
+      const tab = createTab(document)
+      tab.filePath = options?.filePath ?? null
+      tab.dirty = options?.dirty ?? false
+      this.tabs.push(tab)
+      this.activeTabId = tab.id
+      this.pruneScratchTabs(tab.id)
+      this.bumpRevision()
+      return tab.id
+    },
+    importSchema(schema: IntrospectedSchema, name?: string): void {
+      const imported = schemaToErd(schema)
+      const title = uniqueName(
+        name?.trim() || '가져온 스키마',
+        this.tabs.map((tab) => tab.document.name)
+      )
+      const document = createEmptyDocument(title)
+      document.dialect = schema.dialect
+      document.tables = imported.tables
+      document.relations = imported.relations
+      const positions = layoutTables(document.tables, document.relations)
+      const byId = new Map(document.tables.map((table) => [table.id, table]))
       for (const position of positions) {
         const table = byId.get(position.id)
         if (!table) continue
-        table.x = position.x + offsetX
+        table.x = position.x
         table.y = position.y
       }
-      this.document.tables.push(...imported.tables)
-      this.document.relations.push(...imported.relations)
-      this.clearSelection()
-      this.markDirty()
-      this.bumpRevision()
+      this.openTabWithDocument(document, { dirty: true })
     },
     duplicateSelection(): void {
       if (this.selectedTableId) this.duplicateTable(this.selectedTableId)
     },
     newDocument(): void {
-      this.document = createEmptyDocument()
-      this.filePath = null
-      this.dirty = false
-      this.draftSavedAt = null
-      this.clearSelection()
-      this.bumpRevision()
-      this.resetHistory()
+      this.addEmptyTab()
     },
     loadFromJson(raw: string, path: string | null): void {
-      this.document = parseErdDocument(raw)
-      this.filePath = path
-      this.dirty = false
-      this.draftSavedAt = null
-      this.clearSelection()
-      this.bumpRevision()
-      this.resetHistory()
+      if (path) {
+        const existing = this.tabs.find((tab) => tab.filePath === path)
+        if (existing) {
+          this.activateTab(existing.id)
+          return
+        }
+      }
+      this.openTabWithDocument(parseErdDocument(raw), { filePath: path, dirty: false })
     },
     restoreAutosave(raw: string): boolean {
       const draft = parseAutosave(raw)
       if (!draft) return false
-      this.document = draft.document
-      this.filePath = draft.filePath
-      this.dirty = draft.dirty
-      this.draftSavedAt = draft.dirty ? Date.now() : null
-      this.clearSelection()
+      this.tabs = draft.tabs.map((item) => {
+        const tab = createTab(item.document)
+        tab.id = item.id
+        tab.filePath = item.filePath
+        tab.dirty = item.dirty
+        tab.draftSavedAt = item.dirty ? Date.now() : null
+        return tab
+      })
+      if (this.tabs.length === 0) this.tabs = [createTab()]
+      this.activeTabId = this.tabs.some((tab) => tab.id === draft.activeTabId)
+        ? draft.activeTabId
+        : this.tabs[0].id
       this.bumpRevision()
-      this.resetHistory()
       return true
+    },
+    applyCollabDocument(tabId: string, document: ErdDocument): void {
+      const tab = this.tabs.find((item) => item.id === tabId)
+      if (!tab) return
+      const next = serializeErdDocument(document)
+      if (serializeErdDocument(tab.document) === next) return
+      historyLock = true
+      tab.document = parseErdDocument(next)
+      tab.historyPast = []
+      tab.historyFuture = []
+      tab.historyBaseline = next
+      tab.dirty = true
+      if (this.activeTabId === tabId) {
+        tab.selectedTableId = null
+        tab.selectedColumnId = null
+        tab.selectedRelationId = null
+      }
+      this.bumpRevision()
+      historyLock = false
+    },
+    markSaved(path: string): void {
+      this.active.filePath = path
+      this.active.dirty = false
+    },
+    markClean(): void {
+      this.active.dirty = false
+    },
+    touchDraft(): void {
+      this.active.draftSavedAt = Date.now()
     },
     toJson(): string {
       return serializeErdDocument(this.document)
@@ -301,7 +445,7 @@ export const useErdStore = defineStore('erd', {
       else if (after >= 0) table.columns.splice(after + 1, 0, column)
       else table.columns.push(column)
       this.selectColumn(tableId, column.id)
-      this.pendingFocusColumnId = column.id
+      this.active.pendingFocusColumnId = column.id
       this.markDirty()
       return column
     },
@@ -320,7 +464,7 @@ export const useErdStore = defineStore('erd', {
       const index = table.columns.findIndex((item) => item.id === columnId)
       table.columns.splice(index + 1, 0, copy)
       this.selectColumn(tableId, copy.id)
-      this.pendingFocusColumnId = copy.id
+      this.active.pendingFocusColumnId = copy.id
       this.markDirty()
       return copy
     },
@@ -375,8 +519,8 @@ export const useErdStore = defineStore('erd', {
         (r) => r.fromColumnId !== columnId && r.toColumnId !== columnId
       )
       if (this.selectedColumnId === columnId) {
-        this.selectedColumnId = null
-        this.selectedTableId = tableId
+        this.active.selectedColumnId = null
+        this.active.selectedTableId = tableId
       }
       this.markDirty()
       this.bumpRevision()
@@ -552,7 +696,7 @@ export const useErdStore = defineStore('erd', {
       if (!relation) return
       const fks = fkEndpoints(relation)
       this.document.relations = this.document.relations.filter((item) => item.id !== relationId)
-      if (this.selectedRelationId === relationId) this.selectedRelationId = null
+      if (this.selectedRelationId === relationId) this.active.selectedRelationId = null
       this.markDirty()
       for (const fk of fks) {
         const table = this.getTable(fk.tableId)
@@ -568,44 +712,44 @@ export const useErdStore = defineStore('erd', {
       }
     },
     selectTable(tableId: string): void {
-      this.selectedTableId = tableId
-      this.selectedColumnId = null
-      this.selectedRelationId = null
+      this.active.selectedTableId = tableId
+      this.active.selectedColumnId = null
+      this.active.selectedRelationId = null
     },
     selectColumn(tableId: string, columnId: string): void {
-      this.selectedTableId = tableId
-      this.selectedColumnId = columnId
-      this.selectedRelationId = null
+      this.active.selectedTableId = tableId
+      this.active.selectedColumnId = columnId
+      this.active.selectedRelationId = null
     },
     selectRelation(relationId: string): void {
-      this.selectedRelationId = relationId
-      this.selectedTableId = null
-      this.selectedColumnId = null
+      this.active.selectedRelationId = relationId
+      this.active.selectedTableId = null
+      this.active.selectedColumnId = null
     },
     focusTable(tableId: string): void {
       this.selectTable(tableId)
-      this.focusTableId = tableId
+      this.active.focusTableId = tableId
     },
     focusRelation(relationId: string): void {
       this.selectRelation(relationId)
     },
     clearPendingFocus(): void {
-      this.pendingFocusColumnId = null
+      this.active.pendingFocusColumnId = null
     },
     startRenameTable(tableId: string): void {
       this.selectTable(tableId)
-      this.pendingRenameTableId = tableId
+      this.active.pendingRenameTableId = tableId
     },
     clearPendingRename(): void {
-      this.pendingRenameTableId = null
+      this.active.pendingRenameTableId = null
     },
     clearFocus(): void {
-      this.focusTableId = null
+      this.active.focusTableId = null
     },
     clearSelection(): void {
-      this.selectedTableId = null
-      this.selectedColumnId = null
-      this.selectedRelationId = null
+      this.active.selectedTableId = null
+      this.active.selectedColumnId = null
+      this.active.selectedRelationId = null
     },
     deleteSelection(): void {
       if (this.selectedRelationId) {

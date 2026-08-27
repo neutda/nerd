@@ -1,19 +1,17 @@
 import type { ErdDocument } from '../erd/model'
 
-export type CollabClientRole = 'host' | 'viewer'
+export type CollabClientRole = 'host' | 'editor' | 'viewer'
 
 export type CollabWsClientMessage =
   | { type: 'join'; roomId: string; clientId: string; role: CollabClientRole; name?: string }
   | { type: 'leave'; roomId: string; clientId: string }
-  | { type: 'presence'; roomId: string; clientId: string }
-  | { type: 'op'; roomId: string; clientId: string; op: unknown }
-  | { type: 'snapshot'; roomId: string; clientId: string; document: ErdDocument }
+  | { type: 'snapshot'; roomId: string; clientId: string; rev?: number; document: ErdDocument }
 
 export type CollabWsServerMessage =
-  | { type: 'joined'; roomId: string; snapshot: ErdDocument | null; viewers: CollabViewer[] }
+  | { type: 'joined'; roomId: string; snapshot: ErdDocument | null; rev: number; viewers: CollabViewer[] }
   | { type: 'error'; message: string }
   | { type: 'presence'; viewers: CollabViewer[] }
-  | { type: 'snapshot'; document: ErdDocument }
+  | { type: 'snapshot'; document: ErdDocument; rev: number; fromClientId: string }
 
 export interface CollabViewer {
   clientId: string
@@ -26,6 +24,7 @@ export interface CollabRoom {
   id: string
   name: string
   createdAt: string
+  rev: number
   snapshot: ErdDocument | null
   viewers: CollabViewer[]
 }
@@ -39,12 +38,13 @@ export interface CreateRoomResponse {
   room: CollabRoom
   wsUrl: string
   viewUrl: string
+  joinUrl: string
 }
 
 export interface CollabHealthResponse {
   ok: true
   service: 'nerd-collab'
-  version: 1
+  version: 2
 }
 
 export interface CollabHostResult {
@@ -55,4 +55,11 @@ export interface CollabHostResult {
   localUrl: string
   viewUrl: string
   wsUrl: string
+  joinUrl: string
+}
+
+export interface CollabJoinTarget {
+  host: string
+  port: number
+  roomId: string
 }

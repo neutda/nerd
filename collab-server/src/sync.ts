@@ -1,6 +1,6 @@
 import type { ErdDocument } from '../../src/shared/erd/model'
+import { cloneDocument } from '../../src/shared/erd/serialize'
 
-/** TODO: OT/CRDT 연산 적용. 지금은 스냅샷 교체만 허용할 예정. */
-export function applyRemoteOp(_document: ErdDocument, _op: unknown): ErdDocument {
-  throw new Error('applyRemoteOp is not implemented')
+export function applySnapshot(_document: ErdDocument | null, next: ErdDocument): ErdDocument {
+  return cloneDocument(next)
 }

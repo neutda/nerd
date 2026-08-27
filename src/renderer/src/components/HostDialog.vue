@@ -1,42 +1,74 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useCollabStore } from '@renderer/stores/collab'
+import { useCollabStore, collabRoleLabel } from '@renderer/stores/collab'
 
 const collab = useCollabStore()
 
 const running = computed(() => collab.status.running)
+const joinUrl = computed(() => (collab.status.running ? collab.status.joinUrl : ''))
 const viewUrl = computed(() => (collab.status.running ? collab.status.viewUrl : ''))
+const viewers = computed(() => collab.session?.viewers ?? [])
 
-async function copyUrl(): Promise<void> {
+async function copyJoin(): Promise<void> {
+  if (!joinUrl.value) return
+  await navigator.clipboard.writeText(joinUrl.value)
+}
+
+async function copyView(): Promise<void> {
   if (!viewUrl.value) return
   await navigator.clipboard.writeText(viewUrl.value)
 }
 </script>
 
 <template>
-  <div v-if="collab.dialogOpen" class="modal-backdrop" @click.self="collab.closeDialog">
-    <div class="modal narrow">
+  <div v-if="collab.hostDialogOpen" class="modal-backdrop" @click.self="collab.closeDialog">
+    <div class="modal">
       <header>
-        <h2>협업 서버 호스트</h2>
+        <h2>협업 호스트</h2>
         <button class="btn ghost" type="button" @click="collab.closeDialog">닫기</button>
       </header>
       <div class="body">
         <p class="note">
-          로컬 협업 서버를 띄워 다른 사람이 URL로 접속할 수 있는 자리입니다. 실시간 동기화, 인증, 원격 뷰어 UI는
-          아직 구현하지 않았습니다.
+          이 PC가 서버가 됩니다. 같은 Wi-Fi(또는 같은 네트워크)의 다른 사람이 접속 정보를 붙여넣으면 같은 ERD를 같이
+          편집할 수 있습니다. 방화벽에서 포트를 허용해야 합니다.
         </p>
-        <p>상태: {{ running ? '실행 중' : '중지됨' }}</p>
-        <div v-if="running" class="url-box">{{ viewUrl }}</div>
+        <label class="lbl">
+          내 이름
+          <input
+            class="field"
+            :value="collab.displayName"
+            placeholder="호스트"
+            @change="collab.setDisplayName(($event.target as HTMLInputElement).value)"
+          />
+        </label>
+        <p>상태: {{ running ? (collab.connected ? '공유 중' : '서버 시작됨') : '중지됨' }}</p>
+        <template v-if="running">
+          <label class="lbl">
+            접속 정보
+            <div class="url-box">{{ joinUrl }}</div>
+          </label>
+          <div class="row-actions">
+            <button class="btn primary" type="button" @click="copyJoin">접속 정보 복사</button>
+            <button class="btn" type="button" @click="copyView">브라우저 보기 URL 복사</button>
+          </div>
+          <p class="note">상대방은 Nerd에서 <strong>도구 → 협업 참가</strong>에 접속 정보를 붙여넣습니다.</p>
+          <h3>참가자 {{ viewers.length }}</h3>
+          <ul v-if="viewers.length" class="collab-people">
+            <li v-for="person in viewers" :key="person.clientId">
+              {{ person.name }} · {{ collabRoleLabel(person.role) }}
+            </li>
+          </ul>
+          <p v-else class="note">아직 참가자가 없습니다.</p>
+        </template>
         <p v-if="collab.error" class="error-text">{{ collab.error }}</p>
       </div>
       <footer>
-        <button v-if="running" class="btn" type="button" @click="copyUrl">URL 복사</button>
         <span style="flex: 1" />
         <button v-if="!running" class="btn primary" type="button" :disabled="collab.loading" @click="collab.start">
-          호스트 시작
+          {{ collab.loading ? '시작 중...' : '호스트 시작' }}
         </button>
         <button v-else class="btn danger" type="button" :disabled="collab.loading" @click="collab.stop">
-          호스트 중지
+          {{ collab.loading ? '중지 중...' : '호스트 중지' }}
         </button>
       </footer>
     </div>

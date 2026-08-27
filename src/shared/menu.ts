@@ -19,3 +19,4 @@ export type MenuCommand =
   | 'view:search'
   | 'view:help'
   | 'tools:host'
+  | 'tools:join'

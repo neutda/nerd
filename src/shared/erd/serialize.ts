@@ -35,5 +35,5 @@ export function serializeErdDocument(document: ErdDocument): string {
 }
 
 export function cloneDocument(document: ErdDocument): ErdDocument {
-  return structuredClone(document)
+  return parseErdDocument(JSON.stringify(document))
 }

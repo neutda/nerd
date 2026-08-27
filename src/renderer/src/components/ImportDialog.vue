@@ -79,7 +79,6 @@ const error = ref('')
 const schema = ref<IntrospectedSchema | null>(null)
 const selected = ref<string[]>([])
 const tableQuery = ref('')
-const mode = ref<'replace' | 'merge'>('replace')
 
 const busy = computed(() => testing.value || fetching.value || importing.value)
 const canConnect = computed(() => Boolean(window.nerd && form.host.trim() && form.user.trim()))
@@ -105,7 +104,6 @@ watch(
     tableQuery.value = ''
     message.value = ''
     error.value = ''
-    mode.value = erd.tableCount > 0 ? 'merge' : 'replace'
   }
 )
 
@@ -213,12 +211,18 @@ function toggleTable(name: string): void {
   selected.value = [...selected.value, name]
 }
 
+function importName(): string {
+  if (form.dialect === 'oracle') return form.serviceName.trim() || form.schema.trim() || 'Oracle'
+  if (form.dialect === 'postgresql') return form.database.trim() || form.schema.trim() || 'PostgreSQL'
+  return form.database.trim() || 'MariaDB'
+}
+
 async function importSelected(): Promise<void> {
   if (!schema.value || selected.value.length === 0) return
   importing.value = true
   error.value = ''
   try {
-    erd.importSchema(filterSchema(schema.value, selected.value), mode.value)
+    erd.importSchema(filterSchema(schema.value, selected.value), importName())
     await nextTick()
     ui.requestFitView()
     emit('close')
@@ -322,19 +326,7 @@ async function importSelected(): Promise<void> {
               <em>{{ table.columns.length }}열</em>
             </label>
           </div>
-          <div class="check-row">
-            <label>
-              <input type="radio" value="replace" v-model="mode" />
-              문서를 이 스키마로 바꾸기
-            </label>
-            <label>
-              <input type="radio" value="merge" v-model="mode" />
-              현재 문서에 추가
-            </label>
-          </div>
-          <p v-if="mode === 'replace' && erd.tableCount > 0" class="note">
-            지금 캔버스에 있는 테이블과 관계는 모두 바뀝니다.
-          </p>
+          <p class="note">선택한 테이블은 새 탭으로 열립니다. 지금 편집중인 문서는 그대로 둡니다.</p>
         </div>
       </div>
       <footer>

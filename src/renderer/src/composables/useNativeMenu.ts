@@ -15,9 +15,13 @@ export function useNativeMenu() {
     switch (command) {
       case 'file:new':
         await session.createNew()
+        await nextTick()
+        ui.requestFitView()
         return
       case 'file:open':
         await session.open()
+        await nextTick()
+        ui.requestFitView()
         return
       case 'file:save':
         await session.save()
@@ -74,6 +78,10 @@ export function useNativeMenu() {
         return
       case 'tools:host':
         collab.openDialog()
+        return
+      case 'tools:join':
+        collab.openJoinDialog()
+        return
     }
   }
 

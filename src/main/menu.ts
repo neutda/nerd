@@ -72,7 +72,10 @@ export function installAppMenu(): void {
     },
     {
       label: '도구',
-      submenu: [{ label: '서버 호스트...', click: () => send('tools:host') }]
+      submenu: [
+        { label: '협업 호스트...', click: () => send('tools:host') },
+        { label: '협업 참가...', click: () => send('tools:join') }
+      ]
     },
     {
       label: '도움말',
